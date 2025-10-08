@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSE 化學：摩爾概念互動測驗</title>
+    <!-- 載入 Tailwind CSS (響應式設計框架) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 React, ReactDOM 和 Babel (用於處理 JSX) -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* 設定字體為 Inter，並確保整個頁面佈局清晰 */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+        }
+        /* 自定義數學公式渲染的樣式，使用 LaTeX 格式 */
+        .question-text p {
+            display: inline;
+        }
+        .question-text .latex-math {
+            display: inline-block;
+            margin: 0 4px;
+        }
+        /* 簡單的旋轉動畫 */
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow {
+          animation: spin 3s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <!-- React 應用程式將在此處渲染 -->
+    </div>
+
+    <script>
+        // 設定 Tailwind CSS 配置
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': '#4f46e5',
+                        'secondary': '#8b5cf6',
+                    }
+                }
+            }
+        }
+        // 模擬環境變數 (在您當前的運行環境中，這些變數會被自動注入)
+        window.__app_id = 'classroom-quiz-dse-mole';
+        window.__firebase_config = JSON.stringify({
+            // **請務必在此處替換您的真實 Firebase 金鑰**
+  apiKey: "AIzaSyB0kVq7zSw1h4qG-6YbG-feDw_7bgr2uk4",
+  authDomain: "sunchowdsechem.firebaseapp.com",
+  projectId: "sunchowdsechem",
+  storageBucket: "sunchowdsechem.firebasestorage.app",
+  messagingSenderId: "277546472423",
+  appId: "1:277546472423:web:f093f2603b1f38643a2342"
+            // ...其他配置
+        });
+        window.__initial_auth_token = undefined;
+    </script>
+    
+    <!-- 載入 Firebase SDK 模組 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, query, orderBy, onSnapshot, deleteDoc, runTransaction, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // 建議在開發/除錯時開啟 Firebase Log
+        setLogLevel('Debug');
+
+        // 將 Firebase 相關函數掛載到 window，以便 JSX 腳本可以訪問
+        window.firebaseDependencies = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, setDoc, getDoc, updateDoc, collection, query, orderBy, onSnapshot, deleteDoc, runTransaction };
+    </script>
+
+    <!-- 遊戲程式碼區塊 (使用 Babel 轉譯 JSX) -->
+    <script type="text/babel">
+        // 注意：為了在單一 HTML 文件中運行，我們需要從 window 變數中取得 Firebase 依賴
+        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, setDoc, getDoc, updateDoc, collection, query, orderBy, onSnapshot, deleteDoc, runTransaction } = window.firebaseDependencies;
+
+        const { useState, useEffect, useCallback, useMemo } = React;
+        const ReactDOM = window.ReactDOM;
+
+        // --- Global Constants and Configuration ---
+
+        // 原子相對質量 (RAM) 用於計算 (略)
+        const RAM = { H: 1.0, C: 12.0, N: 14.0, O: 16.0, Na: 23.0, Cl: 35.5, Mg: 24.3, S: 32.1, K: 39.1, Br: 79.9, Ca: 40.1, Fe: 55.8, };
+        const MAX_TIME_PER_QUESTION_SEC = 20;
+        const BASE_SCORE = 1000;
+
+        const calculateMolarMass = (formula) => {
+            let mass = 0;
+            const cleanFormula = formula.replace(/(\(|\))/g, '');
+            const parts = cleanFormula.match(/([A-Z][a-z]*)(\d*)/g);
+            if (!parts) return 0;
+            
+            parts.forEach(part => {
+                const match = part.match(/([A-Z][a-z]*)(\d*)/);
+                if (match) {
+                    const element = match[1];
+                    const count = match[2] ? parseInt(match[2], 10) : 1;
+                    mass += (RAM[element] || 0) * count;
+                }
+            });
+            return mass;
+        };
+
+        const initialQuestions = [
+            // 簡化題目庫，避免重複 (僅保留前幾題作為範例)
+            { id: '0', tier: 'A', question: "摩爾質量的單位是什麼？", options: ['$\\text{g}$', '$\\text{mol}$', '$\\text{g/mol}$', '$\\text{g/L}$'], correct: 2 },
+            { id: '1', tier: 'A', question: "「摩爾」概念將巨觀質量與哪一個微觀屬性聯繫起來？", options: ['密度', '體積', '粒子數', '溫度'], correct: 2 },
+            { id: '2', tier: 'B', question: `在 $46.0\\text{ g}$ 的鈉 ($\text{Na}$，摩爾質量 $\\approx 23.0\\text{ g/mol}$) 中有多少摩爾？`, options: ['$1.0 \\text{ mol}$', '$2.0 \\text{ mol}$', '$0.5 \\text{ mol}$', '$46.0 \\text{ mol}$'], correct: 1, explanation: '摩爾數 = 質量 / 摩爾質量。$46.0\\text{ g} / 23.0\\text{ g/mol} = 2.0 \\text{ mol}$' },
+            { id: '3', tier: 'C', question: `計算 $36.0\\text{ g}$ 水中的 $\\text{H}_2\\text{O}$ 分子數。 (摩爾質量 $\\approx 18.0\\text{ g/mol}$， $N_A = 6.02 \\times 10^{23}$)`, options: ['$6.02 \\times 10^{23}$', '$12.04 \\times 10^{23}$', '$36.0$', '$3.01 \\times 10^{23}$'], correct: 1, explanation: '摩爾數 = $36.0/18.0 = 2.0 \\text{ mol}$。分子數 = $2.0 \\times N_A = 12.04 \\times 10^{23}$' },
+        ];
+
+
+        // --- Firebase 設定 (使用全域變數) ---
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: 'mock' };
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
+
+        let app, db, auth;
+        const isFirebaseConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== 'YOUR_FIREBASE_API_KEY';
+
+        if (isFirebaseConfigured) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } else {
+            console.error("Firebase 配置未設置。遊戲將無法在多人模式下保存或運行。請檢查您的 FIREBASE_API_KEY。");
+        }
+
+        // --- Firestore 路徑與函數 ---
+
+        const getSessionPath = (code) => `artifacts/${appId}/public/data/quizSessions/${code}`;
+        // 新增的 Players 集合路徑
+        const getPlayersCollectionPath = (code) => `artifacts/${appId}/public/data/quizSessions/${code}/players`;
+        const getResponsesCollectionPath = (code) => `artifacts/${appId}/public/data/quizSessions/${code}/responses`;
+
+        const signIn = async () => {
+            let user;
+            try {
+                if (auth) {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    user = auth.currentUser;
+                }
+            } catch (error) {
+                console.error("Firebase 身份驗證失敗:", error);
+            }
+            return user;
+        };
+
+        // --- 計分邏輯 ---
+        const calculateScore = (response, question, startTime) => {
+            if (response.selectedOptionIndex !== question.correct) { return 0; }
+            const timeTakenMs = response.timestamp - startTime;
+            const timeTakenSec = timeTakenMs / 1000;
+            const timeFactor = Math.max(0, 1 - (timeTakenSec / MAX_TIME_PER_QUESTION_SEC));
+            return Math.round(BASE_SCORE + BASE_SCORE * timeFactor);
+        };
+
+        // --- 遊戲狀態 Context ---
+        const GameContext = React.createContext();
+
+        // --- 組件 ---
+
+        /**
+         * 自定義 Hook：管理 Firebase 初始化和身份驗證狀態。
+         */
+        const useFirebaseAuthState = () => {
+            const [userId, setUserId] = useState(null);
+            const [isAuthReady, setIsAuthReady] = useState(false);
+            const [isConfigured] = useState(isFirebaseConfigured);
+
+            useEffect(() => {
+                if (!auth) {
+                    setUserId(crypto.randomUUID());
+                    setIsAuthReady(true);
+                    return;
+                }
+
+                const bootstrapAuth = async () => {
+                    let attempt = 0;
+                    const maxAttempts = 5;
+                    const baseDelay = 1000;
+
+                    while (attempt < maxAttempts) {
+                        try {
+                            await signIn();
+                            break;
+                        } catch (error) {
+                            attempt++;
+                            if (attempt >= maxAttempts) {
+                                console.error("多次嘗試後登錄失敗。", error);
+                                setIsAuthReady(true);
+                                return;
+                            }
+                            const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+                            await new Promise(res => setTimeout(res, delay));
+                        }
+                    }
+                };
+
+                bootstrapAuth();
+                
+                const unsubscribe = onAuthStateChanged(auth, (user) => {
+                    const currentId = user ? user.uid : crypto.randomUUID();
+                    setUserId(currentId);
+                    setIsAuthReady(true);
+                });
+
+                return () => {
+                    if (auth) unsubscribe();
+                };
+            }, []);
+
+            return { db, auth, userId, isAuthReady, isConfigured };
+        };
+
+        /**
+         * 渲染主要應用程式。
+         */
+        function App() {
+            const [view, setView] = useState('HOME'); // HOME, HOST, PLAYER
+            const [gameCode, setGameCode] = useState('');
+            const [playerName, setPlayerName] = useState('');
+            const { db, auth, userId, isAuthReady, isConfigured } = useFirebaseAuthState();
+
+            if (!isAuthReady) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
+                        <svg className="animate-spin-slow h-8 w-8 mr-3 text-indigo-400" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <p className="text-xl">正在初始化遊戲服務...</p>
+                    </div>
+                );
+            }
+
+            const contextValue = { db, auth, userId, gameCode, setGameCode, playerName, setPlayerName, isConfigured };
+
+            let ContentComponent;
+            if (view === 'HOST') {
+                ContentComponent = HostView;
+            } else if (view === 'PLAYER') {
+                ContentComponent = PlayerView;
+            } else {
+                ContentComponent = Home;
+            }
+
+            return (
+                <GameContext.Provider value={contextValue}>
+                    <div className="min-h-screen bg-gray-900 font-sans text-white">
+                        <header className="py-4 px-6 shadow-lg bg-gray-800 flex justify-between items-center">
+                            <h1 className="text-2xl font-extrabold text-indigo-400">
+                                DSE 化學：摩爾概念測驗
+                            </h1>
+                            <div className="text-sm opacity-70">
+                                {view !== 'HOME' && userId && `用戶 ID: ${userId.substring(0, 8)}...`}
+                            </div>
+                        </header>
+                        <main className="container mx-auto p-4 md:p-8">
+                            {React.createElement(ContentComponent, { setView })}
+                        </main>
+                    </div>
+                </GameContext.Provider>
+            );
+        }
+
+        /**
+         * 首頁：選擇主持人或玩家角色。
+         */
+        const Home = ({ setView }) => {
+            const { setGameCode, setPlayerName, isConfigured } = React.useContext(GameContext);
+            const [localCode, setLocalCode] = useState('');
+            const [localName, setLocalName] = useState('');
+
+            const handleJoin = () => {
+                if (localCode.length === 6 && localName) {
+                    setGameCode(localCode);
+                    setPlayerName(localName);
+                    setView('PLAYER');
+                }
+            };
+
+            return (
+                <div className="flex flex-col md:flex-row gap-8 mt-16 max-w-4xl mx-auto">
+                    <Card title="開始新測驗 (教師/主持人)">
+                        {isConfigured ? (
+                            <>
+                                <p className="text-gray-400 mb-4">
+                                    建立新的遊戲會話，控制測驗的流程。
+                                </p>
+                                <button
+                                    onClick={() => setView('HOST')}
+                                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition duration-200 transform hover:scale-[1.02]"
+                                >
+                                    主持遊戲
+                                </button>
+                            </>
+                        ) : (
+                            <p className="text-red-400 font-semibold">
+                                🚨 無法連接到資料庫。請檢查您的 Firebase 配置以啟用多人模式。
+                            </p>
+                        )}
+                    </Card>
+
+                    <Card title="加入測驗 (學生/玩家)">
+                        <input
+                            type="text"
+                            placeholder="輸入 6 位數遊戲代碼"
+                            maxLength="6"
+                            value={localCode}
+                            onChange={(e) => setLocalCode(e.target.value.toUpperCase().slice(0, 6))}
+                            className="w-full p-3 mb-4 bg-gray-700 text-white rounded-lg placeholder-gray-400 border border-gray-600 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                        />
+                        <input
+                            type="text"
+                            placeholder="輸入您的姓名 (例如：John S.4A)"
+                            value={localName}
+                            onChange={(e) => setLocalName(e.target.value)}
+                            className="w-full p-3 mb-6 bg-gray-700 text-white rounded-lg placeholder-gray-400 border border-gray-600 focus:ring-indigo-500 focus:border-indigo-500 transition"
+                        />
+                        <button
+                            onClick={handleJoin}
+                            disabled={localCode.length !== 6 || !localName}
+                            className={`w-full py-3 font-bold rounded-xl shadow-lg transition duration-200 ${
+                                localCode.length === 6 && localName
+                                    ? 'bg-green-600 hover:bg-green-700'
+                                    : 'bg-gray-500 cursor-not-allowed'
+                            }`}
+                        >
+                            加入遊戲
+                        </button>
+                    </Card>
+                </div>
+            );
+        };
+
+        /**
+         * 通用卡片組件。
+         */
+        const Card = ({ title, children, className = '' }) => (
+            <div className={`flex-1 p-6 bg-gray-800 rounded-2xl shadow-2xl border-t-4 border-indigo-500 ${className}`}>
+                <h2 className="text-3xl font-bold mb-4 text-indigo-400">{title}</h2>
+                {children}
+            </div>
+        );
+
+        /**
+         * Host View (教師) 組件。
+         */
+        const HostView = ({ setView }) => {
+            const { db, userId, isConfigured } = React.useContext(GameContext);
+            const [gameCode, setGameCode] = useState('');
+            const [session, setSession] = useState(null);
+            // 現在從 players 集合中讀取玩家
+            const [players, setPlayers] = useState([]); 
+            const [responses, setResponses] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [isPlayerLoading, setIsPlayerLoading] = useState(false); 
+
+            // 1. 建立新遊戲會話
+            const createNewGame = async () => {
+                if (!db || !userId) return;
+                setLoading(true);
+                setError(null);
+
+                const newCode = Math.random().toString(36).toUpperCase().substring(2, 8);
+                const newSessionRef = doc(db, getSessionPath(newCode));
+
+                const initialSessionData = {
+                    gameCode: newCode,
+                    hostId: userId,
+                    status: 'WAITING',
+                    currentQuestionIndex: -1,
+                    currentQuestionStartTime: 0,
+                    questions: initialQuestions,
+                    totalQuestions: initialQuestions.length,
+                };
+
+                try {
+                    await setDoc(newSessionRef, initialSessionData);
+                    setGameCode(newCode);
+                } catch (e) {
+                    console.error("創建會話時出錯: ", e);
+                    setError("無法創建遊戲會話。請檢查您的 Firebase 安全規則 (Security Rules) 和控制台獲取詳細信息。");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            // 2. 實時會話監聽器 (等待室, 遊戲進度)
+            useEffect(() => {
+                if (!db || !gameCode) return;
+
+                const sessionRef = doc(db, getSessionPath(gameCode));
+                const unsubscribeSession = onSnapshot(sessionRef, (docSnap) => {
+                    if (docSnap.exists() && docSnap.data().hostId === userId) {
+                        setSession(docSnap.data());
+                    } else if (docSnap.exists() && docSnap.data().hostId !== userId) {
+                        setError("您不是此會話的主持人。");
+                    } else {
+                        setSession(null);
+                    }
+                }, (err) => {
+                     console.error("Session Snapshot Error:", err);
+                     setError("無法讀取遊戲會話。請檢查您的 Firebase 安全規則。");
+                });
+
+                return () => unsubscribeSession();
+            }, [db, gameCode, userId]);
+
+            // 3. 實時玩家列表監聽器 (新增的 Players 集合)
+            useEffect(() => {
+                if (!db || !session || session.status === 'FINISHED') {
+                    setPlayers([]);
+                    return;
+                }
+                
+                setIsPlayerLoading(true);
+                const playersCollectionRef = collection(db, getPlayersCollectionPath(gameCode));
+                const q = query(playersCollectionRef); 
+
+                const unsubscribePlayers = onSnapshot(q, (snapshot) => {
+                    const currentPlayers = snapshot.docs.map(d => d.data());
+                    
+                    // 🚨 新的除錯日誌: 確認我們從 players 集合收到了多少玩家
+                    console.log(`[DEBUG] Players Snapshot Received. Total players: ${snapshot.docs.length}`);
+
+                    setPlayers(currentPlayers.sort((a, b) => a.joinTime - b.joinTime));
+                    setIsPlayerLoading(false);
+                }, (err) => {
+                    console.error("Players Snapshot Error:", err);
+                    setIsPlayerLoading(false);
+                    setError("無法讀取學生列表資料。請檢查您的 Firebase 安全規則。");
+                });
+
+                return () => unsubscribePlayers();
+            }, [db, session, gameCode]);
+
+            // 4. 實時響應監聽器 (僅用於計分和回答統計)
+            useEffect(() => {
+                if (!db || !session) {
+                    setResponses([]);
+                    return;
+                }
+                const responsesCollectionRef = collection(db, getResponsesCollectionPath(gameCode));
+                const q = query(responsesCollectionRef); 
+
+                const unsubscribeResponses = onSnapshot(q, (snapshot) => {
+                    const currentResponses = snapshot.docs.map(d => d.data());
+                    
+                    // 🚨 這是舊的除錯日誌，現在主要依賴 Players Snapshot
+                    console.log(`[DEBUG] Responses Snapshot Received. Total docs: ${snapshot.docs.length}`);
+
+                    setResponses(currentResponses.sort((a, b) => a.timestamp - b.timestamp));
+                }, (err) => {
+                    console.error("Responses Snapshot Error:", err);
+                });
+
+                return () => unsubscribeResponses();
+            }, [db, session, gameCode]);
+
+            // 5. 排行榜計算
+            const leaderboard = useMemo(() => {
+                if (!players.length) return [];
+
+                const playerScores = players.reduce((acc, player) => {
+                    acc[player.userId] = { 
+                        name: player.name, 
+                        score: 0, 
+                        correctAnswers: 0,
+                        lastAnswerTime: 0,
+                        userId: player.userId
+                    };
+                    return acc;
+                }, {});
+
+                // 計算所有問題的分數
+                initialQuestions.forEach((q, qIndex) => {
+                    const responsesForQ = responses.filter(r => r.questionIndex === qIndex);
+                    responsesForQ.forEach(response => {
+                        // 確保會話數據中存在該問題的開始時間
+                        const score = calculateScore(response, q, session?.currentQuestionStartTime || 0);
+                        if (score > 0) {
+                            // 檢查玩家是否在當前 players 列表中 (以防有人中途退出但仍有分數)
+                            if (playerScores[response.userId]) {
+                                playerScores[response.userId].score += score;
+                                playerScores[response.userId].correctAnswers += 1;
+                                playerScores[response.userId].lastAnswerTime = Math.max(playerScores[response.userId].lastAnswerTime, response.timestamp);
+                            }
+                        }
+                    });
+                });
+
+                return Object.values(playerScores)
+                    .sort((a, b) => {
+                        if (b.score !== a.score) return b.score - a.score;
+                        return a.lastAnswerTime - b.lastAnswerTime; // 時間快者勝出平局
+                    })
+                    .filter(p => p.score > 0 || p.correctAnswers > 0 || p.userId === userId || players.some(pl => pl.userId === p.userId)); 
+            }, [session, players, responses, userId]);
+
+            // 6. 遊戲控制函數 (startGame, advanceQuestion, cleanupGame 保持不變)
+
+            const startGame = async () => {
+                if (!db || !gameCode || session.status !== 'WAITING') return;
+
+                const sessionRef = doc(db, getSessionPath(gameCode));
+                try {
+                    await updateDoc(sessionRef, {
+                        status: 'IN_PROGRESS',
+                        currentQuestionIndex: 0,
+                        currentQuestionStartTime: Date.now(),
+                    });
+                } catch (e) {
+                    setError("無法開始遊戲。請檢查您的連線和權限。");
+                }
+            };
+
+            const advanceQuestion = async (direction) => {
+                if (!db || !gameCode || session.status === 'FINISHED') return;
+
+                let nextIndex = session.currentQuestionIndex + direction;
+
+                if (nextIndex >= initialQuestions.length) {
+                    nextIndex = initialQuestions.length; // 結束遊戲狀態
+                }
+                
+                const sessionRef = doc(db, getSessionPath(gameCode));
+                
+                try {
+                    if (nextIndex < initialQuestions.length) {
+                        // 下一個問題
+                        await updateDoc(sessionRef, {
+                            currentQuestionIndex: nextIndex,
+                            currentQuestionStartTime: Date.now(),
+                        });
+                    } else {
+                        // 結束遊戲
+                        await updateDoc(sessionRef, {
+                            status: 'FINISHED',
+                            currentQuestionIndex: nextIndex,
+                        });
+                    }
+                } catch (e) {
+                    setError("無法切換問題。請檢查您的連線和權限。");
+                }
+            };
+
+            const cleanupGame = async () => {
+                if (!db || !gameCode) return;
+                const isConfirmed = prompt("請輸入 'DELETE' 以確認結束並刪除此測驗數據:") === 'DELETE';
+                if (isConfirmed) {
+                    try {
+                         await deleteDoc(doc(db, getSessionPath(gameCode)));
+                         setView('HOME');
+                    } catch (e) {
+                        setError("無法刪除會話。請檢查權限。");
+                    }
+                }
+            };
+
+            // --- 渲染主持人視圖 ---
+
+            if (!isConfigured) return <ErrorMessage message="多人遊戲功能需要 Firebase 資料庫連接。請檢查配置。" onBack={() => setView('HOME')} />;
+            if (error) return <ErrorMessage message={error} onBack={() => setView('HOME')} />;
+
+
+            if (!gameCode || !session) {
+                return (
+                    <div className="text-center mt-12">
+                        <h2 className="text-4xl font-bold mb-8 text-indigo-400">主持新測驗</h2>
+                        <button
+                            onClick={createNewGame}
+                            disabled={loading}
+                            className="py-4 px-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xl rounded-xl shadow-lg transition duration-200"
+                        >
+                            {loading ? '正在創建...' : '生成遊戲代碼'}
+                        </button>
+                    </div>
+                );
+            }
+            
+            // 等待室
+            if (session.status === 'WAITING') {
+                return (
+                    <HostWaitingRoom
+                        gameCode={gameCode}
+                        players={players}
+                        startGame={startGame}
+                        cleanupGame={cleanupGame}
+                        isLoading={isPlayerLoading}
+                    />
+                );
+            }
+
+            // 測驗進行中 (略，結構與舊版一致，使用 players 列表)
+            if (session.status === 'IN_PROGRESS') {
+                const currentQ = session.questions[session.currentQuestionIndex];
+                const responsesForQ = responses.filter(r => r.questionIndex === session.currentQuestionIndex);
+                
+                return (
+                    <HostQuiz
+                        session={session}
+                        currentQ={currentQ}
+                        responses={responsesForQ}
+                        leaderboard={leaderboard}
+                        advanceQuestion={advanceQuestion}
+                        totalPlayers={players.length}
+                    />
+                );
+            }
+
+            // 遊戲結束 (略)
+            if (session.status === 'FINISHED') {
+                return (
+                    <HostFinished
+                        leaderboard={leaderboard}
+                        cleanupGame={cleanupGame}
+                    />
+                );
+            }
+        };
+
+        /**
+         * Host - 等待室組件
+         */
+        const HostWaitingRoom = ({ gameCode, players, startGame, cleanupGame, isLoading }) => (
+            <div className="text-center max-w-5xl mx-auto">
+                <h2 className="text-5xl font-extrabold mb-4 text-indigo-400">等待室</h2>
+                <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl inline-block">
+                    <p className="text-2xl mb-2 text-gray-300">請學生加入：</p>
+                    <p className="text-7xl font-mono tracking-widest bg-indigo-600 p-4 rounded-xl shadow-inner my-4">
+                        {gameCode}
+                    </p>
+                    <p className="text-lg text-gray-400">總題數：{initialQuestions.length}</p>
+                </div>
+
+                <h3 className="text-3xl font-bold mt-8 mb-4">
+                    已連接玩家 ({players.length})
+                    {isLoading && (
+                        <svg className="animate-spin-slow h-6 w-6 inline-block ml-3 text-indigo-400" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    )}
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 max-h-80 overflow-y-auto p-2 bg-gray-800 rounded-xl shadow-inner">
+                    {players.length === 0 && !isLoading ? (
+                        <p className="col-span-6 text-gray-500 py-4">暫無學生加入。</p>
+                    ) : (
+                        players.map((player) => (
+                            <div key={player.userId} className="p-3 bg-gray-700 rounded-lg text-lg font-semibold truncate hover:bg-indigo-500 transition duration-150">
+                                {player.name}
+                            </div>
+                        ))
+                    )}
+                     {isLoading && players.length === 0 && (
+                        <p className="col-span-6 text-indigo-400 py-4">正在載入玩家數據...</p>
+                    )}
+                </div>
+
+                <div className="mt-8 flex justify-center gap-4">
+                    <button
+                        onClick={startGame}
+                        disabled={players.length === 0}
+                        className={`py-3 px-6 text-xl font-bold rounded-xl transition duration-200 ${
+                            players.length > 0
+                                ? 'bg-green-600 hover:bg-green-700 shadow-xl'
+                                : 'bg-gray-600 cursor-not-allowed'
+                        }`}
+                    >
+                        開始測驗
+                    </button>
+                    <button
+                        onClick={cleanupGame}
+                        className="py-3 px-6 bg-red-600 hover:bg-red-700 text-white font-bold text-xl rounded-xl shadow-xl transition duration-200"
+                    >
+                        結束會話
+                    </button>
+                </div>
+            </div>
+        );
+
+        /**
+         * Host - 測驗進行中組件 (略)
+         */
+        const HostQuiz = ({ session, currentQ, responses, leaderboard, advanceQuestion, totalPlayers }) => {
+            const qIndex = session.currentQuestionIndex;
+            const totalQ = session.totalQuestions;
+
+            const totalResponses = responses.filter(r => r.questionIndex === qIndex).length; 
+            const remainingTime = Math.max(0, MAX_TIME_PER_QUESTION_SEC - Math.floor((Date.now() - session.currentQuestionStartTime) / 1000));
+            const isTimeUp = remainingTime === 0;
+            const isQuestionOver = totalResponses >= totalPlayers || isTimeUp;
+
+            // 響應分佈
+            const optionCounts = currentQ.options.map((_, index) =>
+                responses.filter(r => r.questionIndex === qIndex && r.selectedOptionIndex === index).length
+            );
+            const maxCount = Math.max(...optionCounts, 1);
+
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                    {/* 左欄：問題與控制 */}
+                    <div className="lg:col-span-2">
+                        <div className="bg-gray-800 p-6 rounded-2xl shadow-2xl">
+                            <p className="text-xl font-semibold text-indigo-300 mb-2">
+                                問題 {qIndex + 1} / {totalQ} (難度 {currentQ.tier})
+                            </p>
+                            <div className="text-5xl font-extrabold mb-6 text-white leading-snug question-text"
+                                 dangerouslySetInnerHTML={{ __html: currentQ.question.replace(/(\$.*?\$(?:\s*|))/g, '<span class="latex-math">$1</span>') }} />
+
+                            <div className="flex justify-between items-center mb-6">
+                                <div className="text-3xl font-bold text-yellow-400">
+                                    剩餘時間: {remainingTime}s
+                                </div>
+                                <div className="text-3xl font-bold text-green-400">
+                                    已回答: {totalResponses} / {totalPlayers}
+                                </div>
+                            </div>
+
+                            {/* 選項網格與結果 */}
+                            <div className="grid grid-cols-2 gap-4">
+                                {currentQ.options.map((option, index) => {
+                                    const isCorrect = index === currentQ.correct;
+                                    const percentage = totalResponses > 0 ? Math.round((optionCounts[index] / totalResponses) * 100) : 0;
+                                    const barWidth = `${percentage}%`;
+
+                                    return (
+                                        <div
+                                            key={index}
+                                            className={`relative p-3 rounded-xl shadow-lg transition duration-300 overflow-hidden 
+                                                ${isQuestionOver ? (isCorrect ? 'bg-green-700' : 'bg-red-700') : 'bg-gray-700'}`}
+                                        >
+                                            {isQuestionOver && (
+                                                <div
+                                                    className="absolute top-0 left-0 h-full opacity-50 transition-all duration-300"
+                                                    style={{ width: barWidth, backgroundColor: isCorrect ? '#10B981' : '#EF4444' }}
+                                                />
+                                            )}
+                                            <span className="relative z-10 text-xl font-bold"
+                                                  dangerouslySetInnerHTML={{ __html: option.replace(/(\$.*?\$(?:\s*|))/g, '<span class="latex-math">$1</span>') }} />
+                                            {isQuestionOver && (
+                                                <span className="absolute right-3 z-10 text-xl font-bold">
+                                                    {optionCounts[index]} ({percentage}%)
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            
+                            {isQuestionOver && currentQ.explanation && (
+                                <div className="mt-4 p-4 bg-indigo-900 rounded-lg text-indigo-200">
+                                    <p className="font-semibold">解釋:</p>
+                                    <p className="question-text" dangerouslySetInnerHTML={{ __html: currentQ.explanation.replace(/(\$.*?\$(?:\s*|))/g, '<span class="latex-math">$1</span>') }} />
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* 控制按鈕 */}
+                        <div className="mt-8 text-center">
+                            <button
+                                onClick={() => advanceQuestion(1)}
+                                className={`py-3 px-8 text-xl font-bold rounded-xl transition duration-300 ${
+                                    isQuestionOver || qIndex === 0
+                                        ? 'bg-indigo-600 hover:bg-indigo-700 shadow-xl'
+                                        : 'bg-gray-600 cursor-not-allowed'
+                                }`}
+                                disabled={!isQuestionOver && qIndex !== 0}
+                            >
+                                {qIndex + 1 < totalQ ? '下一題 >>' : '查看最終排行榜 >>'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 右欄：排行榜 */}
+                    <LeaderboardCard leaderboard={leaderboard} title="即時排行榜" />
+                </div>
+            );
+        };
+
+        /**
+         * Host - 遊戲結束組件 (略)
+         */
+        const HostFinished = ({ leaderboard, cleanupGame }) => (
+            <div className="text-center max-w-4xl mx-auto mt-12">
+                <h2 className="text-6xl font-extrabold text-yellow-400 mb-8 animate-pulse">🎉 測驗完成！ 🎉</h2>
+                <LeaderboardCard leaderboard={leaderboard} title="最終排行榜" className="mb-8" />
+                <div className="mt-12 flex justify-center gap-4">
+                    <button
+                        onClick={cleanupGame}
+                        className="py-3 px-8 bg-red-600 hover:bg-red-700 text-white font-bold text-xl rounded-xl shadow-xl transition duration-200"
+                    >
+                        結束並清除會話
+                    </button>
+                </div>
+            </div>
+        );
+
+        /**
+         * 共享排行榜卡片 (略)
+         */
+        const LeaderboardCard = ({ leaderboard, title, className = '' }) => (
+            <Card title={title} className={`shadow-inner ${className}`}>
+                <div className="space-y-3 max-h-[80vh] overflow-y-auto pr-2">
+                    {leaderboard.length === 0 ? (
+                        <p className="text-gray-400">暫無分數。</p>
+                    ) : (
+                        leaderboard.map((player, index) => (
+                            <div
+                                key={player.userId}
+                                className={`flex justify-between items-center p-3 rounded-lg font-bold transition duration-300 ${
+                                    index === 0 ? 'bg-yellow-500 text-gray-900 text-xl shadow-2xl scale-105'
+                                    : index === 1 ? 'bg-gray-300 text-gray-900 text-lg'
+                                    : index === 2 ? 'bg-yellow-700 text-white'
+                                    : 'bg-gray-700 text-white'
+                                }`}
+                            >
+                                <span className="w-8 text-center">{index + 1}</span>
+                                <span className="flex-1 truncate mx-2">{player.name}</span>
+                                <span className="text-right text-2xl tracking-wider">{player.score}</span>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </Card>
+        );
+
+        /**
+         * Player View (學生) 組件。
+         */
+        const PlayerView = ({ setView }) => {
+            const { db, userId, gameCode, playerName } = React.useContext(GameContext);
+            const [session, setSession] = useState(null);
+            const [myResponse, setMyResponse] = useState(null);
+            const [leaderboard, setLeaderboard] = useState([]);
+            const [error, setError] = useState(null);
+            const [isJoining, setIsJoining] = useState(true); // 新增狀態：正在加入遊戲
+
+            // 0. 學生加入遊戲時寫入 Players 集合 (新增的邏輯)
+            useEffect(() => {
+                if (!db || !userId || !gameCode || !playerName || !isJoining) return;
+                
+                const playerRef = doc(db, getPlayersCollectionPath(gameCode), userId);
+                
+                // 寫入/更新玩家資料，這會讓主持人看到學生
+                const playerDocData = {
+                    userId,
+                    name: playerName,
+                    joinTime: Date.now(),
+                };
+                
+                setDoc(playerRef, playerDocData)
+                    .then(() => {
+                        console.log(`[PLAYER] 成功加入遊戲: ${playerName}`);
+                        setIsJoining(false); // 寫入成功後，停止加入狀態
+                    })
+                    .catch(e => {
+                        console.error("[PLAYER] 加入遊戲失敗 (寫入 Player Doc 失敗): ", e);
+                        setError("無法加入遊戲。遊戲代碼可能無效或伺服器連線問題。");
+                        setIsJoining(false);
+                    });
+
+            }, [db, userId, gameCode, playerName, isJoining]); // 依賴 isJoining
+
+            // 1. 實時會話監聽器 (略，結構與舊版一致)
+            useEffect(() => {
+                if (!db || !gameCode) return;
+                const sessionRef = doc(db, getSessionPath(gameCode));
+
+                const unsubscribe = onSnapshot(sessionRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        setSession(docSnap.data());
+                        const data = docSnap.data();
+                        if (data.status === 'IN_PROGRESS' && data.currentQuestionIndex !== (session?.currentQuestionIndex ?? -1)) {
+                            setMyResponse(null);
+                        }
+                    } else {
+                        setError("遊戲會話未找到或已被主持人結束。");
+                        setSession(null);
+                    }
+                }, (err) => console.error("Player Session Snapshot Error:", err));
+
+                return () => unsubscribe();
+            }, [db, gameCode, session?.currentQuestionIndex]);
+
+            // 2. 實時排行榜/響應監聽器 (略，結構與舊版一致)
+            useEffect(() => {
+                if (!db || !gameCode) return;
+
+                const responsesCollectionRef = collection(db, getResponsesCollectionPath(gameCode));
+                const q = query(responsesCollectionRef); 
+
+                const unsubscribeResponses = onSnapshot(q, (snapshot) => {
+                    const currentResponses = snapshot.docs.map(d => d.data());
+                    
+                    const playerScores = currentResponses.reduce((acc, response) => {
+                        const qIndex = response.questionIndex;
+                        const question = initialQuestions[qIndex];
+                        
+                        if (!acc[response.userId]) {
+                            acc[response.userId] = { name: response.name, score: 0, lastAnswerTime: 0, userId: response.userId };
+                        }
+
+                        if (session && question) {
+                            const score = calculateScore(response, question, 0); 
+                            if (score > 0) {
+                                 acc[response.userId].score += score;
+                                 acc[response.userId].lastAnswerTime = Math.max(acc[response.userId].lastAnswerTime, response.timestamp);
+                            }
+                        }
+                        return acc;
+                    }, {});
+
+                    setLeaderboard(Object.values(playerScores)
+                        .sort((a, b) => b.score - a.score)
+                        .filter(p => p.score > 0 || p.userId === userId)
+                    );
+
+                    const currentQIndex = session?.currentQuestionIndex ?? -1;
+                    const latestResponse = currentResponses.find(r => r.userId === userId && r.questionIndex === currentQIndex);
+                    setMyResponse(latestResponse);
+
+                }, (err) => console.error("Player Responses Snapshot Error:", err));
+
+                return () => unsubscribeResponses();
+            }, [db, gameCode, session, userId]);
+
+
+            // 3. 提交答案的動作 (略，結構與舊版一致)
+            const submitAnswer = async (selectedOptionIndex) => {
+                if (!db || !session || myResponse || session.status !== 'IN_PROGRESS') return;
+
+                const currentQIndex = session.currentQuestionIndex;
+                // 注意：Firestore 會自動生成 ID，我們使用 collection(ref) 然後不傳 docId
+                const responseRef = doc(collection(db, getResponsesCollectionPath(gameCode))); 
+                const responseData = {
+                    userId,
+                    name: playerName,
+                    questionIndex: currentQIndex,
+                    selectedOptionIndex,
+                    timestamp: Date.now(),
+                };
+
+                try {
+                    await setDoc(responseRef, responseData);
+                    setMyResponse(responseData); 
+                } catch (e) {
+                    console.error("提交答案時出錯: ", e);
+                    setError("提交答案失敗。請檢查連線或聯繫老師。"); 
+                }
+            };
+
+            // --- 渲染玩家視圖 ---
+
+            if (error) return <ErrorMessage message={error} onBack={() => setView('HOME')} />;
+
+            if (!session || session.status === 'WAITING') {
+                return (
+                    <PlayerWaitingRoom
+                        gameCode={gameCode}
+                        playerName={playerName}
+                        session={session}
+                        isJoining={isJoining}
+                    />
+                );
+            }
+
+            if (session.status === 'IN_PROGRESS') {
+                const currentQ = session.questions[session.currentQuestionIndex];
+                const myScoreEntry = leaderboard.find(p => p.userId === userId) || { score: 0 };
+                
+                return (
+                    <PlayerQuiz
+                        currentQ={currentQ}
+                        qIndex={session.currentQuestionIndex}
+                        totalQ={session.totalQuestions}
+                        myResponse={myResponse}
+                        submitAnswer={submitAnswer}
+                        myScore={myScoreEntry.score}
+                        leaderboard={leaderboard}
+                    />
+                );
+            }
+
+            if (session.status === 'FINISHED') {
+                return (
+                    <PlayerFinished
+                        leaderboard={leaderboard}
+                        myScore={leaderboard.find(p => p.userId === userId)?.score || 0}
+                        setView={setView}
+                    />
+                );
+            }
+        };
+
+        /**
+         * Player - 等待室組件
+         */
+        const PlayerWaitingRoom = ({ gameCode, playerName, session, isJoining }) => {
+            
+            return (
+                <div className="text-center max-w-lg mx-auto mt-24 bg-gray-800 p-8 rounded-2xl shadow-2xl">
+                    <h2 className="text-4xl font-extrabold mb-4 text-indigo-400">歡迎, {playerName}!</h2>
+                    <p className="text-xl text-gray-300 mb-6">您已加入遊戲代碼:</p>
+                    <p className="text-6xl font-mono tracking-widest bg-indigo-600 p-4 rounded-xl shadow-inner my-4">
+                        {gameCode}
+                    </p>
+                    <p className="text-2xl font-semibold mt-8 text-yellow-400">
+                        {isJoining ? '正在連線中...' : '正在等待主持人開始測驗...'}
+                    </p>
+                </div>
+            );
+        };
+
+        /**
+         * Player - 測驗進行中組件 (略)
+         */
+        const PlayerQuiz = ({ currentQ, qIndex, totalQ, myResponse, submitAnswer, myScore, leaderboard }) => {
+            const isAnswered = !!myResponse;
+            const myRank = leaderboard.findIndex(p => p.userId === myResponse?.userId) + 1;
+
+            return (
+                <div className="max-w-4xl mx-auto">
+                    <div className="flex justify-between items-center mb-6">
+                        <p className="text-xl font-semibold text-indigo-300">
+                            問題 {qIndex + 1} / {totalQ}
+                        </p>
+                        <p className="text-xl font-semibold text-green-400">
+                            我的分數: {myScore} (排名: {myRank > 0 ? myRank : '--'})
+                        </p>
+                    </div>
+                    
+                    <Card title="摩爾概念測驗">
+                        <div className="text-4xl font-extrabold mb-8 text-white leading-snug text-center question-text"
+                             dangerouslySetInnerHTML={{ __html: currentQ.question.replace(/(\$.*?\$(?:\s*|))/g, '<span class="latex-math">$1</span>') }} />
+
+                        {isAnswered && (
+                            <div className={`p-4 rounded-xl text-center text-2xl font-bold mb-4 animate-pulse bg-indigo-600`}>
+                                ✅ 答案已成功提交！正在等待老師切換下一題...
+                            </div>
+                        )}
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                            {currentQ.options.map((option, index) => {
+                                const isSelected = isAnswered && myResponse.selectedOptionIndex === index;
+
+                                let btnClass = 'bg-gray-700 hover:bg-gray-600';
+                                if (isAnswered) {
+                                    if (isSelected) {
+                                        btnClass = 'bg-yellow-600 shadow-yellow-400/50';
+                                    } else {
+                                        btnClass = 'bg-gray-700 opacity-50 cursor-not-allowed';
+                                    }
+                                }
+                                
+                                return (
+                                    <button
+                                        key={index}
+                                        onClick={() => submitAnswer(index)}
+                                        disabled={isAnswered}
+                                        className={`py-4 px-3 text-xl font-bold text-left rounded-xl shadow-lg transition duration-300 transform hover:scale-[1.01] ${btnClass} ${!isAnswered ? 'cursor-pointer' : 'cursor-default'}`}
+                                    >
+                                        <span className="mr-2 opacity-70">{String.fromCharCode(65 + index)}.</span>
+                                        <span dangerouslySetInnerHTML={{ __html: option.replace(/(\$.*?\$(?:\s*|))/g, '<span class="latex-math">$1</span>') }} />
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </Card>
+                </div>
+            );
+        };
+
+        /**
+         * Player - 遊戲結束組件 (略)
+         */
+        const PlayerFinished = ({ leaderboard, myScore, setView }) => {
+            const { userId } = React.useContext(GameContext);
+            const myRank = leaderboard.findIndex(p => p.userId === userId) + 1;
+            const totalPlayers = leaderboard.length;
+
+            return (
+                <div className="text-center max-w-4xl mx-auto mt-12">
+                    <h2 className="text-6xl font-extrabold text-yellow-400 mb-8">遊戲結束！</h2>
+                    <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl mb-8">
+                        <p className="text-4xl font-bold text-indigo-400">您的最終分數:</p>
+                        <p className="text-7xl font-extrabold text-white my-4">{myScore}</p>
+                        <p className="text-3xl font-semibold text-green-400">
+                            您的排名: {myRank} / {totalPlayers}
+                        </p>
+                    </div>
+                    <div className="mt-8 flex justify-center gap-4">
+                        <button
+                            onClick={() => setView('HOME')}
+                            className="py-3 px-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xl rounded-xl shadow-xl transition duration-200"
+                        >
+                            返回主頁
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        /**
+         * 共享錯誤訊息組件 (略)
+         */
+        const ErrorMessage = ({ message, onBack }) => (
+            <div className="text-center max-w-lg mx-auto mt-24 bg-red-900 p-8 rounded-2xl shadow-2xl">
+                <h2 className="text-3xl font-extrabold mb-4 text-red-400">發生錯誤</h2>
+                <p className="text-xl text-white mb-6">{message}</p>
+                <button
+                    onClick={onBack}
+                    className="py-2 px-6 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition duration-200"
+                >
+                    返回
+                </button>
+            </div>
+        );
+
+        // 啟動 React 應用程式
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
